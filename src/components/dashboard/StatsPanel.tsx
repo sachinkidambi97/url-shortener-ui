@@ -22,7 +22,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { ArrowLeft, MousePointerClick, Loader2, AlertCircle, Clock } from 'lucide-react';
+import { ArrowLeft, MousePointerClick, Loader2, AlertCircle, Clock, RefreshCw } from 'lucide-react';
 
 interface StatsPanelProps {
   shortCode: string;
@@ -46,17 +46,28 @@ function truncate(str: string, max: number) {
 export default function StatsPanel({ shortCode, onBack }: StatsPanelProps) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    setLoading(true);
+  const fetchStats = (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
     setError('');
     getStats(shortCode)
       .then(setStats)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'Failed to load stats');
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  };
+
+  useEffect(() => {
+    fetchStats();
+    const interval = setInterval(() => fetchStats(true), 10000);
+    return () => clearInterval(interval);
   }, [shortCode]);
 
   return (
@@ -66,7 +77,7 @@ export default function StatsPanel({ shortCode, onBack }: StatsPanelProps) {
           <ArrowLeft className="h-4 w-4" />
           Back
         </Button>
-        <div>
+        <div className="flex-1">
           <h2 className="text-xl font-semibold">
             Analytics:{' '}
             <code className="rounded bg-muted px-2 py-0.5 text-base font-mono">{shortCode}</code>
@@ -77,6 +88,10 @@ export default function StatsPanel({ shortCode, onBack }: StatsPanelProps) {
             </p>
           )}
         </div>
+        <Button variant="outline" size="sm" onClick={() => fetchStats(true)} disabled={refreshing} className="gap-1.5">
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
       {loading && (

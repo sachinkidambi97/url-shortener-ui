@@ -84,12 +84,11 @@ export default function ShortenForm({ onShortened }: ShortenFormProps) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex gap-2">
             <Input
-              type="url"
+              type="text"
               placeholder="https://example.com/very/long/url..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               className="flex-1"
-              required
             />
             <Button type="submit" disabled={loading} className="shrink-0">
               {loading ? (

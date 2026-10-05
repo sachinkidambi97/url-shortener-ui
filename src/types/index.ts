@@ -54,6 +54,21 @@ export interface StatsResponse {
   recentClicks: ClickEvent[];
 }
 
+export interface RawClickEvent {
+  clickedAt: string;
+  ipAddress: string;
+  userAgent: string;
+  referrer: string;
+}
+
+export interface RawStatsResponse {
+  shortCode: string;
+  originalUrl: string;
+  totalClicks: number;
+  clicks?: RawClickEvent[];
+  recentClicks?: RawClickEvent[];
+}
+
 export interface ApiError {
   message: string;
   status: number;

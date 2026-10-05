@@ -1,14 +1,16 @@
-import { Backend, ShortenRequest, ShortenResponse, UrlEntry, StatsResponse, AuthResponse } from '@/types';
+import { Backend, ShortenRequest, ShortenResponse, UrlEntry, StatsResponse, AuthResponse, RawStatsResponse } from '@/types';
 
 const ENDPOINTS = {
   monolith: {
     auth: 'http://localhost:8080',
     shorten: 'http://localhost:8080',
+    redirect: 'http://localhost:8080',
     stats: 'http://localhost:8080',
   },
   microservices: {
     auth: 'http://localhost:8081',
     shorten: 'http://localhost:8081',
+    redirect: 'http://localhost:8082',
     stats: 'http://localhost:8083',
   },
 };
@@ -19,9 +21,13 @@ function getBackend(): Backend {
   return stored === 'microservices' ? 'microservices' : 'monolith';
 }
 
-function getBaseUrl(service: 'auth' | 'shorten' | 'stats'): string {
+function getBaseUrl(service: 'auth' | 'shorten' | 'redirect' | 'stats'): string {
   const backend = getBackend();
   return ENDPOINTS[backend][service];
+}
+
+export function getRedirectBaseUrl(): string {
+  return getBaseUrl('redirect');
 }
 
 function getAuthToken(): string | null {
@@ -45,7 +51,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     let message = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      message = body.message || body.error || message;
+      message = body.detail || body.message || body.error || body.title || message;
     } catch {
       // ignore parse errors
     }
@@ -80,7 +86,9 @@ export async function shortenUrl(data: ShortenRequest): Promise<ShortenResponse>
     headers: authHeaders(),
     body: JSON.stringify(data),
   });
-  return handleResponse<ShortenResponse>(res);
+  const result = await handleResponse<ShortenResponse>(res);
+  result.shortUrl = `${getBaseUrl('redirect')}/${result.shortCode}`;
+  return result;
 }
 
 export async function getUrls(): Promise<UrlEntry[]> {
@@ -88,7 +96,22 @@ export async function getUrls(): Promise<UrlEntry[]> {
     method: 'GET',
     headers: authHeaders(),
   });
-  return handleResponse<UrlEntry[]>(res);
+  const entries = await handleResponse<UrlEntry[]>(res);
+  const redirectBase = getBaseUrl('redirect');
+
+  const enriched = await Promise.all(
+    entries.map(async (e) => {
+      let clickCount = 0;
+      try {
+        const stats = await getStats(e.shortCode);
+        clickCount = stats.totalClicks;
+      } catch {
+        // stats service might be down — show 0
+      }
+      return { ...e, shortUrl: `${redirectBase}/${e.shortCode}`, clickCount };
+    })
+  );
+  return enriched;
 }
 
 export async function updateUrl(code: string, originalUrl: string): Promise<UrlEntry> {
@@ -124,5 +147,30 @@ export async function getStats(code: string): Promise<StatsResponse> {
     method: 'GET',
     headers: authHeaders(),
   });
-  return handleResponse<StatsResponse>(res);
+  const raw = await handleResponse<RawStatsResponse>(res);
+
+  const rawClicks = raw.recentClicks || raw.clicks || [];
+  const recentClicks = rawClicks.map(c => ({
+    timestamp: c.clickedAt,
+    ip: c.ipAddress,
+    userAgent: c.userAgent,
+    referrer: c.referrer,
+  }));
+
+  const clicksByDayMap: Record<string, number> = {};
+  for (const c of rawClicks) {
+    const day = c.clickedAt.slice(0, 10);
+    clicksByDayMap[day] = (clicksByDayMap[day] || 0) + 1;
+  }
+  const clicksByDay = Object.entries(clicksByDayMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, clicks]) => ({ date, clicks }));
+
+  return {
+    shortCode: raw.shortCode,
+    originalUrl: raw.originalUrl,
+    totalClicks: raw.totalClicks,
+    clicksByDay,
+    recentClicks,
+  };
 }
